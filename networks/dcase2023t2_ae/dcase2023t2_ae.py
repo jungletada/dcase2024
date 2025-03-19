@@ -2,6 +2,7 @@ import os
 import sys
 import torch
 from torch import optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn.functional as F
 import numpy as np
 import scipy
@@ -24,7 +25,18 @@ class DCASE2023T2AE(BaseModel):
             test=test,
         )
         parameter_list = [{"params":self.model.parameters()}]
-        self.optimizer = optim.Adam(parameter_list, lr=self.args.learning_rate)
+        self.optimizer = optim.AdamW(
+            parameter_list, 
+            lr=self.args.learning_rate,
+            betas=(0.9, 0.999), 
+            eps=1e-08, 
+            weight_decay=0.01,)
+        
+        # self.scheduler = CosineAnnealingLR(
+        #     optimizer=self.optimizer,
+        #     T_max=self.args.epochs,
+        #     eta_min=1e-5)
+        
         format_path = f"{self.args.model}_{self.args.dataset}{self.model_name_suffix}{self.eval_suffix}_seed{self.args.seed}"
         self.mse_score_distr_file_path = self.model_dir/f"score_distr_{format_path}_mse.pickle"
         self.mahala_score_distr_file_path = self.model_dir/f"score_distr_{format_path}_mahala.pickle"
@@ -88,7 +100,7 @@ class DCASE2023T2AE(BaseModel):
 
             if not is_calc_cov:
                 self.optimizer.zero_grad()
-
+    
             recon_batch, z = self.model(data)
 
             if is_calc_cov:
@@ -135,6 +147,7 @@ class DCASE2023T2AE(BaseModel):
             if not is_calc_cov:
                 self.loss.backward()
                 self.optimizer.step()
+                
             train_loss += float(self.loss)
             train_recon_loss += float(recon_loss)
             train_recon_loss_source += float(recon_loss_source)
@@ -144,9 +157,10 @@ class DCASE2023T2AE(BaseModel):
             y_pred.append(self.loss.item())
 
             if batch_idx % self.args.log_interval == 0 and not is_calc_cov:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tlr: {:.5f}\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader),
+                    self.optimizer.param_groups[0]['lr'],
                     self.loss.item()))
 
         if is_calc_cov:
